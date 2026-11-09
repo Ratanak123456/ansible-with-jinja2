@@ -1,0 +1,28 @@
+---
+plugin: amazon.aws.aws_ec2
+
+regions:
+  - ap-southeast-2
+
+filters:
+  instance-state-name: running
+  "tag:Project": AnsibleLab
+  "tag:AnsibleManaged": "true"
+
+hostnames:
+  - instance-id
+
+keyed_groups:
+  - key: ec2_tags.Role
+    prefix: role
+
+  - key: ec2_tags.Environment
+    prefix: env
+
+groups:
+  webservers: "(ec2_tags.Role | default('')) == 'web'"
+
+compose:
+  ansible_host: public_ip_address
+  deployment_env: ec2_tags.Environment | default('dev')
+  deployment_role: ec2_tags.Role | default('unknown')

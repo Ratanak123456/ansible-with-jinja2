@@ -1,0 +1,18 @@
+---
+# SSH Settings
+ansible_user: ubuntu
+ansible_python_interpreter: /usr/bin/python3
+
+# Docker Application
+app_name: spring-cafe
+app_image: ratanaksaren/spring-cafe:1.0.1
+
+# Docker Port Mapping
+app_container_port: 3000
+app_host_port: 3000
+
+# Nginx Settings
+nginx_public_port: 80
+
+# Health Check
+app_health_path: /health

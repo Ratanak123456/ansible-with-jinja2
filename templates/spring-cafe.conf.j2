@@ -1,0 +1,26 @@
+# Managed by Ansible
+# Instance ID: {{ inventory_hostname }}
+# Environment: {{ deployment_env }}
+# Role: {{ deployment_role }}
+
+server {
+    listen {{ nginx_public_port }} default_server;
+    server_name _;
+
+    location / {
+        proxy_pass http://127.0.0.1:{{ app_host_port }};
+
+        proxy_http_version 1.1;
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 60s;
+
+        # For lab verification
+        add_header X-Lab-Instance "{{ inventory_hostname }}" always;
+    }
+}

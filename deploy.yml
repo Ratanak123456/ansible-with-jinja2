@@ -1,0 +1,154 @@
+---
+- name: Deploy Spring Cafe with Docker and Nginx
+  hosts: webservers
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+    - name: Verify supported Ubuntu environment
+      ansible.builtin.assert:
+        that:
+          - ansible_distribution == "Ubuntu"
+          - ansible_distribution_release == "noble"
+          - ansible_architecture == "x86_64"
+        fail_msg: "This lab requires Ubuntu 24.04 x86_64."
+
+  tasks:
+    # -----------------------------------
+    # Step 1: Install prerequisites
+    # -----------------------------------
+    - name: Install Docker prerequisites and Nginx
+      ansible.builtin.apt:
+        name:
+          - ca-certificates
+          - curl
+          - python3-requests
+          - nginx
+        state: present
+        update_cache: true
+
+    # -----------------------------------
+    # Step 2: Configure Docker repository
+    # -----------------------------------
+    - name: Create Docker APT keyrings directory
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: "0755"
+
+    - name: Download Docker official GPG key
+      ansible.builtin.get_url:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        dest: /etc/apt/keyrings/docker.asc
+        mode: "0644"
+
+    - name: Configure Docker official APT repository
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/docker.sources
+        mode: "0644"
+        content: |
+          Types: deb
+          URIs: https://download.docker.com/linux/ubuntu
+          Suites: {{ ansible_distribution_release }}
+          Components: stable
+          Architectures: amd64
+          Signed-By: /etc/apt/keyrings/docker.asc
+
+    # -----------------------------------
+    # Step 3: Install Docker Engine
+    # -----------------------------------
+    - name: Install Docker Engine packages
+      ansible.builtin.apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: present
+        update_cache: true
+
+    - name: Enable and start Docker
+      ansible.builtin.service:
+        name: docker
+        state: started
+        enabled: true
+
+    # -----------------------------------
+    # Step 4: Deploy Spring Cafe
+    # -----------------------------------
+    - name: Pull and run Spring Cafe container
+      community.docker.docker_container:
+        name: "{{ app_name }}"
+        image: "{{ app_image }}"
+        state: started
+        pull: missing
+        restart_policy: unless-stopped
+        published_ports:
+          - "127.0.0.1:{{ app_host_port }}:{{ app_container_port }}"
+
+    - name: Verify Spring Cafe health
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ app_host_port }}{{ app_health_path }}"
+        status_code: 200
+      register: app_health
+      retries: 12
+      delay: 5
+      until: (app_health.status | default(0)) == 200
+
+    # -----------------------------------
+    # Step 5: Configure Nginx
+    # -----------------------------------
+    - name: Remove default Nginx website
+      ansible.builtin.file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+      notify: Reload Nginx
+
+    - name: Generate Nginx configuration from Jinja2
+      ansible.builtin.template:
+        src: templates/spring-cafe.conf.j2
+        dest: /etc/nginx/conf.d/spring-cafe.conf
+        owner: root
+        group: root
+        mode: "0644"
+        backup: true
+      notify: Reload Nginx
+
+    - name: Validate Nginx configuration
+      ansible.builtin.command:
+        cmd: nginx -t
+      changed_when: false
+
+    - name: Ensure Nginx is running
+      ansible.builtin.service:
+        name: nginx
+        state: started
+        enabled: true
+
+    - name: Apply pending Nginx reload
+      ansible.builtin.meta: flush_handlers
+
+    # -----------------------------------
+    # Step 6: Verify public-facing proxy
+    # -----------------------------------
+    - name: Verify Spring Cafe through Nginx
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ nginx_public_port }}{{ app_health_path }}"
+        status_code: 200
+      register: proxy_health
+      retries: 5
+      delay: 2
+      until: (proxy_health.status | default(0)) == 200
+
+    - name: Display deployed application URL
+      ansible.builtin.debug:
+        msg: >-
+          Spring Cafe deployed on {{ inventory_hostname }}
+          at http://{{ ansible_host }}/
+
+  handlers:
+    - name: Reload Nginx
+      ansible.builtin.service:
+        name: nginx
+        state: reloaded
